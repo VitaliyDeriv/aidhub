@@ -1,0 +1,13 @@
+# Режим розробки з hot-reload (bind mount коду + uvicorn --reload):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+x-dev: &dev
+  volumes:
+    - ./app:/app/app:ro
+  environment:
+    DEBUG: "true"
+  command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
+
+services:
+  web1: *dev
+  web2: *dev
+  web3: *dev

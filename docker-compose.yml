@@ -1,0 +1,67 @@
+name: aidhub
+
+x-web: &web
+  image: aidhub-web:latest
+  build:
+    context: .
+    target: runtime
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+  depends_on:
+    db:
+      condition: service_healthy
+  networks: [backend]
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 10s
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    # Порт БД назовні не публікується: доступна лише в мережі backend.
+
+  # Три однакові репліки застосунку (окремі сервіси, щоб Nginx бачив стабільні імена
+  # web1..web3 і міг застосовувати weight та вимикати їх по одному).
+  web1:
+    <<: *web
+  web2:
+    <<: *web
+  web3:
+    <<: *web
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      web1: {condition: service_healthy}
+      web2: {condition: service_healthy}
+      web3: {condition: service_healthy}
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      # Алгоритм обирається змінною NGINX_CONF: round_robin | least_conn | weighted | ip_hash | single
+      - ./nginx/${NGINX_CONF:-round_robin}.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/server.inc:/etc/nginx/server.inc:ro
+    networks: [backend]
+
+networks:
+  backend:
+
+volumes:
+  pgdata:
